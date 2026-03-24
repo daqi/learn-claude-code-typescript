@@ -47,41 +47,48 @@ skills/
 
 2. SkillLoader 递归扫描 `SKILL.md` 文件, 用目录名作为技能标识。
 
-```python
-class SkillLoader:
-    def __init__(self, skills_dir: Path):
-        self.skills = {}
-        for f in sorted(skills_dir.rglob("SKILL.md")):
-            text = f.read_text()
-            meta, body = self._parse_frontmatter(text)
-            name = meta.get("name", f.parent.name)
-            self.skills[name] = {"meta": meta, "body": body}
+```typescript
+class SkillLoader {
+  constructor(skillsDir: string) {
+    this.skills = {};
+    for (const filePath of globSync("**/SKILL.md", { cwd: skillsDir }).sort()) {
+      const fullPath = join(skillsDir, filePath);
+      const text = readFileSync(fullPath, "utf8");
+      const { meta, body } = this.parseFrontmatter(text);
+      const name = meta.name || basename(dirname(fullPath));
+      this.skills[name] = { meta, body };
+    }
+  }
 
-    def get_descriptions(self) -> str:
-        lines = []
-        for name, skill in self.skills.items():
-            desc = skill["meta"].get("description", "")
-            lines.append(f"  - {name}: {desc}")
-        return "\n".join(lines)
+  getDescriptions(): string {
+    const lines = [];
+    for (const [name, skill] of Object.entries(this.skills)) {
+      lines.push(`  - ${name}: ${skill.meta.description || ""}`);
+    }
+    return lines.join("\n");
+  }
 
-    def get_content(self, name: str) -> str:
-        skill = self.skills.get(name)
-        if not skill:
-            return f"Error: Unknown skill '{name}'."
-        return f"<skill name=\"{name}\">\n{skill['body']}\n</skill>"
+  getContent(name: string): string {
+    const skill = this.skills[name];
+    if (!skill) {
+      return `Error: Unknown skill '${name}'.`;
+    }
+    return `<skill name="${name}">\n${skill.body}\n</skill>`;
+  }
+}
 ```
 
 3. 第一层写入系统提示。第二层不过是 dispatch map 中的又一个工具。
 
-```python
-SYSTEM = f"""You are a coding agent at {WORKDIR}.
+```typescript
+const SYSTEM = `You are a coding agent at ${WORKDIR}.
 Skills available:
-{SKILL_LOADER.get_descriptions()}"""
+${SKILL_LOADER.getDescriptions()}`;
 
-TOOL_HANDLERS = {
-    # ...base tools...
-    "load_skill": lambda **kw: SKILL_LOADER.get_content(kw["name"]),
-}
+const TOOL_HANDLERS = {
+  // ...base tools...
+  load_skill: (input) => SKILL_LOADER.getContent(input.name),
+};
 ```
 
 模型知道有哪些技能 (便宜), 需要时再加载完整内容 (贵)。
@@ -99,7 +106,7 @@ TOOL_HANDLERS = {
 
 ```sh
 cd learn-claude-code
-python agents/s05_skill_loading.py
+npx tsx agents/s05_skill_loading.ts
 ```
 
 试试这些 prompt (英文 prompt 对 LLM 效果更好, 也可以用中文):

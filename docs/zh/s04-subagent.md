@@ -30,45 +30,62 @@ Parent context stays clean. Subagent context is discarded.
 
 1. 父智能体有一个 `task` 工具。子智能体拥有除 `task` 外的所有基础工具 (禁止递归生成)。
 
-```python
-PARENT_TOOLS = CHILD_TOOLS + [
-    {"name": "task",
-     "description": "Spawn a subagent with fresh context.",
-     "input_schema": {
-         "type": "object",
-         "properties": {"prompt": {"type": "string"}},
-         "required": ["prompt"],
-     }},
-]
+```typescript
+const PARENT_TOOLS = [
+  ...CHILD_TOOLS,
+  {
+    name: "task",
+    description: "Spawn a subagent with fresh context.",
+    input_schema: {
+      type: "object",
+      properties: { prompt: { type: "string" } },
+      required: ["prompt"],
+    },
+  },
+];
 ```
 
 2. 子智能体以 `messages=[]` 启动, 运行自己的循环。只有最终文本返回给父智能体。
 
-```python
-def run_subagent(prompt: str) -> str:
-    sub_messages = [{"role": "user", "content": prompt}]
-    for _ in range(30):  # safety limit
-        response = client.messages.create(
-            model=MODEL, system=SUBAGENT_SYSTEM,
-            messages=sub_messages,
-            tools=CHILD_TOOLS, max_tokens=8000,
-        )
-        sub_messages.append({"role": "assistant",
-                             "content": response.content})
-        if response.stop_reason != "tool_use":
-            break
-        results = []
-        for block in response.content:
-            if block.type == "tool_use":
-                handler = TOOL_HANDLERS.get(block.name)
-                output = handler(**block.input)
-                results.append({"type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": str(output)[:50000]})
-        sub_messages.append({"role": "user", "content": results})
-    return "".join(
-        b.text for b in response.content if hasattr(b, "text")
-    ) or "(no summary)"
+```typescript
+async function runSubagent(prompt: string) {
+  const subMessages = [{ role: "user", content: prompt }];
+  let response;
+
+  for (let i = 0; i < 30; i += 1) { // safety limit
+    response = await client.messages.create({
+      model: MODEL,
+      system: SUBAGENT_SYSTEM,
+      messages: subMessages,
+      tools: CHILD_TOOLS,
+      max_tokens: 8000,
+    });
+    subMessages.push({ role: "assistant", content: response.content });
+
+    if (response.stop_reason !== "tool_use") {
+      break;
+    }
+
+    const results = [];
+    for (const block of response.content) {
+      if (block.type === "tool_use") {
+        const handler = TOOL_HANDLERS[block.name];
+        const output = handler(block.input);
+        results.push({
+          type: "tool_result",
+          tool_use_id: block.id,
+          content: String(output).slice(0, 50_000),
+        });
+      }
+    }
+    subMessages.push({ role: "user", content: results });
+  }
+
+  return response.content
+    .filter((block) => block.type === "text")
+    .map((block) => block.text)
+    .join("") || "(no summary)";
+}
 ```
 
 子智能体可能跑了 30+ 次工具调用, 但整个消息历史直接丢弃。父智能体收到的只是一段摘要文本, 作为普通 `tool_result` 返回。
@@ -79,18 +96,18 @@ def run_subagent(prompt: str) -> str:
 |----------------|------------------|-------------------------------|
 | Tools          | 5                | 5 (基础) + task (仅父端)      |
 | 上下文         | 单一共享         | 父 + 子隔离                   |
-| Subagent       | 无               | `run_subagent()` 函数         |
+| Subagent       | 无               | `runSubagent()` 函数         |
 | 返回值         | 不适用           | 仅摘要文本                    |
 
 ## 试一试
 
 ```sh
 cd learn-claude-code
-python agents/s04_subagent.py
+npx tsx agents/s04_subagent.ts
 ```
 
 试试这些 prompt (英文 prompt 对 LLM 效果更好, 也可以用中文):
 
 1. `Use a subtask to find what testing framework this project uses`
-2. `Delegate: read all .py files and summarize what each one does`
+2. `Delegate: read all .ts files and summarize what each one does`
 3. `Use a task to create a new module, then verify it from here`

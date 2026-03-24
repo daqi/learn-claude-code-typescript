@@ -1,5 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
+import ts from "typescript";
 import type {
   AgentVersion,
   VersionDiff,
@@ -14,89 +15,300 @@ const REPO_ROOT = path.resolve(WEB_DIR, "..");
 const AGENTS_DIR = path.join(REPO_ROOT, "agents");
 const DOCS_DIR = path.join(REPO_ROOT, "docs");
 const OUT_DIR = path.join(WEB_DIR, "src", "data", "generated");
+const BASE_TOOL_NAMES = ["bash", "read_file", "write_file", "edit_file"] as const;
+const TOOL_NAME_BY_IDENTIFIER: Record<string, string> = {
+  bashTool: "bash",
+  readFileTool: "read_file",
+  writeFileTool: "write_file",
+  editFileTool: "edit_file",
+};
 
-// Map python filenames to version IDs
-// s01_agent_loop.py -> s01
-// s02_tools.py -> s02
-// s_full.py -> s_full (reference agent, typically skipped)
+// Map TypeScript filenames to version IDs
+// s01_agent_loop.ts -> s01
+// s02_tool_use.ts -> s02
+// s_full.ts -> s_full (reference agent, typically skipped)
 function filenameToVersionId(filename: string): string | null {
-  const base = path.basename(filename, ".py");
+  const base = path.basename(filename, ".ts");
   if (base === "s_full") return null;
-  if (base === "__init__") return null;
 
   const match = base.match(/^(s\d+[a-c]?)_/);
   if (!match) return null;
   return match[1];
 }
 
-// Extract classes from Python source
-function extractClasses(
-  lines: string[]
-): { name: string; startLine: number; endLine: number }[] {
-  const classes: { name: string; startLine: number; endLine: number }[] = [];
-  const classPattern = /^class\s+(\w+)/;
-
-  for (let i = 0; i < lines.length; i++) {
-    const m = lines[i].match(classPattern);
-    if (m) {
-      const name = m[1];
-      const startLine = i + 1;
-      // Find end of class: next class/function at indent 0, or EOF
-      let endLine = lines.length;
-      for (let j = i + 1; j < lines.length; j++) {
-        if (
-          lines[j].match(/^class\s/) ||
-          lines[j].match(/^def\s/) ||
-          (lines[j].match(/^\S/) && lines[j].trim() !== "" && !lines[j].startsWith("#") && !lines[j].startsWith("@"))
-        ) {
-          endLine = j;
-          break;
-        }
-      }
-      classes.push({ name, startLine, endLine });
-    }
-  }
-  return classes;
+function createSourceFile(source: string, fileName: string): ts.SourceFile {
+  return ts.createSourceFile(
+    fileName,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS
+  );
 }
 
-// Extract top-level functions from Python source
-function extractFunctions(
-  lines: string[]
-): { name: string; signature: string; startLine: number }[] {
-  const functions: { name: string; signature: string; startLine: number }[] = [];
-  const funcPattern = /^def\s+(\w+)\((.*?)\)/;
+function getNodeLine(sourceFile: ts.SourceFile, pos: number): number {
+  return sourceFile.getLineAndCharacterOfPosition(pos).line + 1;
+}
 
-  for (let i = 0; i < lines.length; i++) {
-    const m = lines[i].match(funcPattern);
-    if (m) {
-      functions.push({
-        name: m[1],
-        signature: `def ${m[1]}(${m[2]})`,
-        startLine: i + 1,
+function getFirstLineText(source: string, node: ts.Node): string {
+  return source
+    .slice(node.getStart(), node.getEnd())
+    .split(/\r?\n/, 1)[0]
+    .trim();
+}
+
+function getPropertyName(
+  name: ts.PropertyName | ts.BindingName | undefined
+): string | null {
+  if (!name) return null;
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name)) {
+    return name.text;
+  }
+  return null;
+}
+
+function getObjectProperty(
+  node: ts.ObjectLiteralExpression,
+  propertyName: string
+): ts.ObjectLiteralElementLike | undefined {
+  return node.properties.find((property) => {
+    if (
+      ts.isPropertyAssignment(property) ||
+      ts.isShorthandPropertyAssignment(property)
+    ) {
+      return getPropertyName(property.name) === propertyName;
+    }
+    return false;
+  });
+}
+
+function getPropertyValue(
+  property: ts.ObjectLiteralElementLike | undefined
+): ts.Expression | undefined {
+  if (!property) return undefined;
+  if (ts.isPropertyAssignment(property)) {
+    return property.initializer;
+  }
+  if (ts.isShorthandPropertyAssignment(property)) {
+    return property.name;
+  }
+  return undefined;
+}
+
+function unwrapExpression(expression: ts.Expression): ts.Expression {
+  let current = expression;
+  while (
+    ts.isParenthesizedExpression(current) ||
+    ts.isAsExpression(current) ||
+    ts.isSatisfiesExpression(current) ||
+    ts.isNonNullExpression(current) ||
+    ts.isTypeAssertionExpression(current)
+  ) {
+    current = current.expression;
+  }
+  return current;
+}
+
+function getToolNameFromObjectLiteral(
+  node: ts.ObjectLiteralExpression
+): string | null {
+  const nameProp = getObjectProperty(node, "name");
+  const schemaProp = getObjectProperty(node, "input_schema");
+  if (
+    nameProp &&
+    schemaProp &&
+    (() => {
+      const nameValue = getPropertyValue(nameProp);
+      const schemaValue = getPropertyValue(schemaProp);
+      return (
+        !!nameValue &&
+        !!schemaValue &&
+        ts.isStringLiteral(nameValue) &&
+        ts.isObjectLiteralExpression(unwrapExpression(schemaValue))
+      );
+    })()
+  ) {
+    return (getPropertyValue(nameProp) as ts.StringLiteral).text;
+  }
+  return null;
+}
+
+// Extract classes from TypeScript source
+function extractClasses(
+  sourceFile: ts.SourceFile
+): { name: string; startLine: number; endLine: number }[] {
+  const classes: { name: string; startLine: number; endLine: number }[] = [];
+
+  for (const statement of sourceFile.statements) {
+    if (ts.isClassDeclaration(statement) && statement.name) {
+      classes.push({
+        name: statement.name.text,
+        startLine: getNodeLine(sourceFile, statement.getStart(sourceFile)),
+        endLine: getNodeLine(sourceFile, statement.getEnd()),
       });
     }
   }
+
+  return classes;
+}
+
+// Extract top-level functions from TypeScript source
+function extractFunctions(
+  sourceFile: ts.SourceFile,
+  source: string
+): { name: string; signature: string; startLine: number }[] {
+  const functions: { name: string; signature: string; startLine: number }[] = [];
+
+  for (const statement of sourceFile.statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.name) {
+      functions.push({
+        name: statement.name.text,
+        signature: getFirstLineText(source, statement),
+        startLine: getNodeLine(sourceFile, statement.getStart(sourceFile)),
+      });
+      continue;
+    }
+
+    if (!ts.isVariableStatement(statement)) {
+      continue;
+    }
+
+    for (const declaration of statement.declarationList.declarations) {
+      const name = getPropertyName(declaration.name);
+      const initializer = declaration.initializer;
+      if (
+        !name ||
+        !initializer ||
+        (!ts.isArrowFunction(initializer) &&
+          !ts.isFunctionExpression(initializer))
+      ) {
+        continue;
+      }
+
+      functions.push({
+        name,
+        signature: getFirstLineText(source, declaration),
+        startLine: getNodeLine(sourceFile, declaration.getStart(sourceFile)),
+      });
+    }
+  }
+
   return functions;
 }
 
-// Extract tool names from Python source
-// Looks for "name": "tool_name" patterns in dict literals
-function extractTools(source: string): string[] {
-  const toolPattern = /"name"\s*:\s*"(\w+)"/g;
-  const tools = new Set<string>();
-  let m;
-  while ((m = toolPattern.exec(source)) !== null) {
-    tools.add(m[1]);
+// Extract tool names from the `tools` expressions passed into agentLoop.
+function extractTools(sourceFile: ts.SourceFile): string[] {
+  const toolNames: string[] = [];
+  const seen = new Set<string>();
+  const bindings = new Map<string, ts.Expression>();
+
+  function addTool(name: string): void {
+    if (!seen.has(name)) {
+      seen.add(name);
+      toolNames.push(name);
+    }
   }
-  return Array.from(tools);
+
+  function resolveExpression(expression: ts.Expression | undefined): void {
+    if (!expression) return;
+    const current = unwrapExpression(expression);
+
+    if (ts.isIdentifier(current)) {
+      const directName = TOOL_NAME_BY_IDENTIFIER[current.text];
+      if (directName) {
+        addTool(directName);
+        return;
+      }
+      const bound = bindings.get(current.text);
+      if (bound && bound !== current) {
+        resolveExpression(bound);
+      }
+      return;
+    }
+
+    if (ts.isArrayLiteralExpression(current)) {
+      for (const element of current.elements) {
+        if (ts.isSpreadElement(element)) {
+          resolveExpression(element.expression);
+        } else {
+          resolveExpression(element);
+        }
+      }
+      return;
+    }
+
+    if (ts.isCallExpression(current) && ts.isIdentifier(current.expression)) {
+      if (current.expression.text === "createBaseTools") {
+        for (const name of BASE_TOOL_NAMES) {
+          addTool(name);
+        }
+      }
+      return;
+    }
+
+    if (ts.isObjectLiteralExpression(current)) {
+      const toolName = getToolNameFromObjectLiteral(current);
+      if (toolName) {
+        addTool(toolName);
+      }
+    }
+  }
+
+  for (const statement of sourceFile.statements) {
+    if (!ts.isVariableStatement(statement)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name) || !declaration.initializer) {
+        continue;
+      }
+      bindings.set(declaration.name.text, declaration.initializer);
+    }
+  }
+
+  function visit(node: ts.Node): void {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === "agentLoop"
+    ) {
+      const [options] = node.arguments;
+      const current = options && unwrapExpression(options);
+      if (current && ts.isObjectLiteralExpression(current)) {
+        const toolsProp = getObjectProperty(current, "tools");
+        resolveExpression(getPropertyValue(toolsProp));
+      }
+    }
+    ts.forEachChild(node, visit);
+  }
+
+  visit(sourceFile);
+  if (!toolNames.length) {
+    resolveExpression(
+      bindings.get("tools") ??
+        bindings.get("TOOLS") ??
+        bindings.get("PARENT_TOOLS") ??
+        bindings.get("CHILD_TOOLS")
+    );
+  }
+  return toolNames;
 }
 
-// Count non-blank, non-comment lines
-function countLoc(lines: string[]): number {
-  return lines.filter((line) => {
-    const trimmed = line.trim();
-    return trimmed !== "" && !trimmed.startsWith("#");
-  }).length;
+// Count lines containing real TypeScript tokens, excluding comments/blank lines
+function countLoc(sourceFile: ts.SourceFile, source: string): number {
+  const occupiedLines = new Set<number>();
+  const scanner = ts.createScanner(
+    ts.ScriptTarget.Latest,
+    true,
+    ts.LanguageVariant.Standard,
+    source
+  );
+
+  let token = scanner.scan();
+  while (token !== ts.SyntaxKind.EndOfFileToken) {
+    occupiedLines.add(getNodeLine(sourceFile, scanner.getTokenPos()));
+    token = scanner.scan();
+  }
+
+  return occupiedLines.size;
 }
 
 // Detect locale from subdirectory path
@@ -133,7 +345,7 @@ function main() {
   // 1. Read all agent files
   const agentFiles = fs
     .readdirSync(AGENTS_DIR)
-    .filter((f) => f.startsWith("s") && f.endsWith(".py"));
+    .filter((f) => f.startsWith("s") && f.endsWith(".ts"));
 
   console.log(`  Found ${agentFiles.length} agent files`);
 
@@ -148,13 +360,13 @@ function main() {
 
     const filePath = path.join(AGENTS_DIR, filename);
     const source = fs.readFileSync(filePath, "utf-8");
-    const lines = source.split("\n");
+    const sourceFile = createSourceFile(source, filename);
 
     const meta = VERSION_META[versionId];
-    const classes = extractClasses(lines);
-    const functions = extractFunctions(lines);
-    const tools = extractTools(source);
-    const loc = countLoc(lines);
+    const classes = extractClasses(sourceFile);
+    const functions = extractFunctions(sourceFile, source);
+    const tools = extractTools(sourceFile);
+    const loc = countLoc(sourceFile, source);
 
     versions.push({
       id: versionId,

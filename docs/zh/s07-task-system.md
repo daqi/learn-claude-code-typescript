@@ -50,56 +50,70 @@ s03 的 TodoManager 只是内存中的扁平清单: 没有顺序、没有依赖�
 
 1. **TaskManager**: 每个任务一个 JSON 文件, CRUD + 依赖图。
 
-```python
-class TaskManager:
-    def __init__(self, tasks_dir: Path):
-        self.dir = tasks_dir
-        self.dir.mkdir(exist_ok=True)
-        self._next_id = self._max_id() + 1
+```typescript
+class TaskManager {
+  constructor(tasksDir: string) {
+    this.dir = tasksDir;
+    mkdirSync(this.dir, { recursive: true });
+    this.nextId = this.maxId() + 1;
+  }
 
-    def create(self, subject, description=""):
-        task = {"id": self._next_id, "subject": subject,
-                "status": "pending", "blockedBy": [],
-                "blocks": [], "owner": ""}
-        self._save(task)
-        self._next_id += 1
-        return json.dumps(task, indent=2)
+  create(subject: string, description = "") {
+    const task = {
+      id: this.nextId,
+      subject,
+      status: "pending",
+      blockedBy: [],
+      blocks: [],
+      owner: "",
+    };
+    this.save(task);
+    this.nextId += 1;
+    return JSON.stringify(task, null, 2);
+  }
+}
 ```
 
 2. **依赖解除**: 完成任务时, 自动将其 ID 从其他任务的 `blockedBy` 中移除, 解锁后续任务。
 
-```python
-def _clear_dependency(self, completed_id):
-    for f in self.dir.glob("task_*.json"):
-        task = json.loads(f.read_text())
-        if completed_id in task.get("blockedBy", []):
-            task["blockedBy"].remove(completed_id)
-            self._save(task)
+```typescript
+clearDependency(completedId: number) {
+  for (const entry of readdirSync(this.dir).filter((name) => /^task_\d+\.json$/.test(name))) {
+    const task = JSON.parse(readFileSync(join(this.dir, entry), "utf8"));
+    if (task.blockedBy.includes(completedId)) {
+      task.blockedBy = task.blockedBy.filter((value) => value !== completedId);
+      this.save(task);
+    }
+  }
+}
 ```
 
-3. **状态变更 + 依赖关联**: `update` 处理状态转换和依赖边。
+3. **状态变更 + 依赖关联**: `update` 处理状态转换, 完成时自动解锁后续任务。
 
-```python
-def update(self, task_id, status=None,
-           add_blocked_by=None, add_blocks=None):
-    task = self._load(task_id)
-    if status:
-        task["status"] = status
-        if status == "completed":
-            self._clear_dependency(task_id)
-    self._save(task)
+```typescript
+update(taskId: number, status?: string) {
+  const task = this.load(taskId);
+  if (status) {
+    task.status = status;
+    if (status === "completed") {
+      this.clearDependency(taskId);
+    }
+  }
+  this.save(task);
+  return JSON.stringify(task, null, 2);
+}
 ```
 
 4. 四个任务工具加入 dispatch map。
 
-```python
-TOOL_HANDLERS = {
-    # ...base tools...
-    "task_create": lambda **kw: TASKS.create(kw["subject"]),
-    "task_update": lambda **kw: TASKS.update(kw["task_id"], kw.get("status")),
-    "task_list":   lambda **kw: TASKS.list_all(),
-    "task_get":    lambda **kw: TASKS.get(kw["task_id"]),
-}
+```typescript
+const TOOL_HANDLERS = {
+  // ...base tools...
+  task_create: (input) => TASKS.create(input.subject),
+  task_update: (input) => TASKS.update(input.task_id, input.status),
+  task_list: () => TASKS.listAll(),
+  task_get: (input) => TASKS.get(input.task_id),
+};
 ```
 
 从 s07 起, 任务图是多步工作的默认选择。s03 的 Todo 仍可用于单次会话内的快速清单。
@@ -118,7 +132,7 @@ TOOL_HANDLERS = {
 
 ```sh
 cd learn-claude-code
-python agents/s07_task_system.py
+npx tsx agents/s07_task_system.ts
 ```
 
 试试这些 prompt (英文 prompt 对 LLM 效果更好, 也可以用中文):

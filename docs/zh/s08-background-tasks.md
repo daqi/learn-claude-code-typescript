@@ -32,58 +32,59 @@ Agent --[spawn A]--[spawn B]--[other work]----
 
 ## 工作原理
 
-1. BackgroundManager 用线程安全的通知队列追踪任务。
+1. BackgroundManager 用通知队列追踪任务。
 
-```python
-class BackgroundManager:
-    def __init__(self):
-        self.tasks = {}
-        self._notification_queue = []
-        self._lock = threading.Lock()
+```typescript
+class BackgroundManager {
+  constructor() {
+    this.tasks = {};
+    this.notificationQueue = [];
+  }
+}
 ```
 
-2. `run()` 启动守护线程, 立即返回。
+2. `run()` 启动后台执行, 立即返回。
 
-```python
-def run(self, command: str) -> str:
-    task_id = str(uuid.uuid4())[:8]
-    self.tasks[task_id] = {"status": "running", "command": command}
-    thread = threading.Thread(
-        target=self._execute, args=(task_id, command), daemon=True)
-    thread.start()
-    return f"Background task {task_id} started"
+```typescript
+run(command: string): string {
+  const taskId = randomUUID().slice(0, 8);
+  this.tasks[taskId] = { status: "running", command };
+  setTimeout(() => this.execute(taskId, command), 0);
+  return `Background task ${taskId} started`;
+}
 ```
 
 3. 子进程完成后, 结果进入通知队列。
 
-```python
-def _execute(self, task_id, command):
-    try:
-        r = subprocess.run(command, shell=True, cwd=WORKDIR,
-            capture_output=True, text=True, timeout=300)
-        output = (r.stdout + r.stderr).strip()[:50000]
-    except subprocess.TimeoutExpired:
-        output = "Error: Timeout (300s)"
-    with self._lock:
-        self._notification_queue.append({
-            "task_id": task_id, "result": output[:500]})
+```typescript
+execute(taskId: string, command: string) {
+  const result = spawnSync(command, {
+    shell: true,
+    cwd: WORKDIR,
+    encoding: "utf8",
+    timeout: 300_000,
+  });
+  const output = `${result.stdout ?? ""}${result.stderr ?? ""}`.trim();
+  this.tasks[taskId].status = "completed";
+  this.notificationQueue.push({
+    task_id: taskId,
+    result: output.slice(0, 500),
+  });
+}
 ```
 
 4. 每次 LLM 调用前排空通知队列。
 
-```python
-def agent_loop(messages: list):
-    while True:
-        notifs = BG.drain_notifications()
-        if notifs:
-            notif_text = "\n".join(
-                f"[bg:{n['task_id']}] {n['result']}" for n in notifs)
-            messages.append({"role": "user",
-                "content": f"<background-results>\n{notif_text}\n"
-                           f"</background-results>"})
-            messages.append({"role": "assistant",
-                "content": "Noted background results."})
-        response = client.messages.create(...)
+```typescript
+async function agentLoop(messages: ChatMessage[]) {
+  while (true) {
+    const notifications = BG.drainNotifications();
+    if (notifications.length) {
+      const notifText = notifications.map((n) => `[bg:${n.task_id}] ${n.result}`).join("\n");
+      messages.push({ role: "user", content: "<background-results>\n" + notifText + "\n</background-results>" });
+      messages.push({ role: "assistant", content: "Noted background results." });
+    }
+    const response = await client.messages.create({ ... });
 ```
 
 循环保持单线程。只有子进程 I/O 被并行化。
@@ -101,7 +102,7 @@ def agent_loop(messages: list):
 
 ```sh
 cd learn-claude-code
-python agents/s08_background_tasks.py
+npx tsx agents/s08_background_tasks.ts
 ```
 
 试试这些 prompt (英文 prompt 对 LLM 效果更好, 也可以用中文):

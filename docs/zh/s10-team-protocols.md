@@ -22,62 +22,70 @@ s09 中队友能干活能通信, 但缺少结构化协调:
 Shutdown Protocol            Plan Approval Protocol
 ==================           ======================
 
-Lead             Teammate    Teammate           Lead
-  |                 |           |                 |
-  |--shutdown_req-->|           |--plan_req------>|
-  | {req_id:"abc"}  |           | {req_id:"xyz"}  |
-  |                 |           |                 |
-  |<--shutdown_resp-|           |<--plan_resp-----|
-  | {req_id:"abc",  |           | {req_id:"xyz",  |
-  |  approve:true}  |           |  approve:true}  |
+Lead               Teammate    Teammate             Lead
+  |                   |           |                   |
+  |---shutdown_req--->|           |----plan_req------>|
+  | {requestId:"abc"} |           | {requestId:"xyz"} |
+  |                   |           |                   |
+  |<--shutdown_resp---|           |<---plan_resp------|
+  | {requestId:"abc", |           | {requestId:"xyz", |
+  |  approve:true}    |           |  approve:true}    |
 
 Shared FSM:
   [pending] --approve--> [approved]
   [pending] --reject---> [rejected]
 
 Trackers:
-  shutdown_requests = {req_id: {target, status}}
-  plan_requests     = {req_id: {from, plan, status}}
+  shutdown_requests = {requestId: {target, status}}
+  plan_requests     = {requestId: {from, plan, status}}
 ```
 
 ## 工作原理
 
 1. 领导生成 request_id, 通过收件箱发起关机请求。
 
-```python
-shutdown_requests = {}
+```typescript
+const shutdownRequests = {};
 
-def handle_shutdown_request(teammate: str) -> str:
-    req_id = str(uuid.uuid4())[:8]
-    shutdown_requests[req_id] = {"target": teammate, "status": "pending"}
-    BUS.send("lead", teammate, "Please shut down gracefully.",
-             "shutdown_request", {"request_id": req_id})
-    return f"Shutdown request {req_id} sent (status: pending)"
+function handleShutdownRequest(teammate: string): string {
+  const reqId = randomUUID().slice(0, 8);
+  shutdownRequests[reqId] = { target: teammate, status: "pending" };
+  BUS.send("lead", teammate, "Please shut down gracefully.", "shutdown_request", {
+    request_id: reqId,
+  });
+  return `Shutdown request ${reqId} sent (status: pending)`;
+}
 ```
 
 2. 队友收到请求后, 用 approve/reject 响应。
 
-```python
-if tool_name == "shutdown_response":
-    req_id = args["request_id"]
-    approve = args["approve"]
-    shutdown_requests[req_id]["status"] = "approved" if approve else "rejected"
-    BUS.send(sender, "lead", args.get("reason", ""),
-             "shutdown_response",
-             {"request_id": req_id, "approve": approve})
+```typescript
+if (toolName === "shutdown_response") {
+  const reqId = String(args.request_id ?? "");
+  const approve = Boolean(args.approve);
+  if (shutdownRequests[reqId]) {
+    shutdownRequests[reqId].status = approve ? "approved" : "rejected";
+  }
+  BUS.send(sender, "lead", String(args.reason ?? ""), "shutdown_response", {
+    request_id: reqId,
+    approve,
+  });
+}
 ```
 
 3. 计划审批遵循完全相同的模式。队友提交计划 (生成 request_id), 领导审查 (引用同一个 request_id)。
 
-```python
-plan_requests = {}
+```typescript
+const planRequests = {};
 
-def handle_plan_review(request_id, approve, feedback=""):
-    req = plan_requests[request_id]
-    req["status"] = "approved" if approve else "rejected"
-    BUS.send("lead", req["from"], feedback,
-             "plan_approval_response",
-             {"request_id": request_id, "approve": approve})
+function handlePlanReview(reqId: string, approve: boolean, feedback = "") {
+  const req = planRequests[reqId];
+  req.status = approve ? "approved" : "rejected";
+  BUS.send("lead", req.from, feedback, "plan_approval_response", {
+    request_id: reqId,
+    approve,
+  });
+}
 ```
 
 一个 FSM, 两种用途。同样的 `pending -> approved | rejected` 状态机可以套用到任何请求-响应协议上。
@@ -96,7 +104,7 @@ def handle_plan_review(request_id, approve, feedback=""):
 
 ```sh
 cd learn-claude-code
-python agents/s10_team_protocols.py
+npx tsx agents/s10_team_protocols.ts
 ```
 
 试试这些 prompt (英文 prompt 对 LLM 效果更好, 也可以用中文):

@@ -32,6 +32,12 @@ export function VersionDetailClient({
   filename,
 }: VersionDetailClientProps) {
   const t = useTranslations("version");
+  const flowVersions = diff
+    ? [
+        { version: diff.from, label: `${t("prev")} · ${diff.from.toUpperCase()}` },
+        { version, label: `${t("new")} · ${version.toUpperCase()}` },
+      ]
+    : [{ version, label: version.toUpperCase() }];
 
   const tabs = [
     { id: "learn", label: t("tab_learn") },
@@ -58,12 +64,20 @@ export function VersionDetailClient({
             )}
             {activeTab === "deep-dive" && (
               <div className="space-y-8">
-                <section>
+                {/* <section>
                   <h2 className="mb-4 text-xl font-semibold">
                     {t("execution_flow")}
                   </h2>
-                  <ExecutionFlow version={version} />
-                </section>
+                  <div className="grid gap-4 xl:grid-cols-2">
+                    {flowVersions.map((flowVersion) => (
+                      <ExecutionFlow
+                        key={flowVersion.version}
+                        version={flowVersion.version}
+                        title={flowVersion.label}
+                      />
+                    ))}
+                  </div>
+                </section> */}
                 <section>
                   <h2 className="mb-4 text-xl font-semibold">
                     {t("architecture")}

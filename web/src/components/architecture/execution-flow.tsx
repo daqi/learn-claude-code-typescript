@@ -1,8 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { useTranslations } from "@/lib/i18n";
 import { getFlowForVersion } from "@/data/execution-flows";
 import type { FlowNode, FlowEdge } from "@/types/agent-data";
 
@@ -138,10 +136,12 @@ function EdgePath({
   edge,
   nodes,
   index,
+  markerId,
 }: {
   edge: FlowEdge;
   nodes: FlowNode[];
   index: number;
+  markerId: string;
 }) {
   const from = nodes.find((n) => n.id === edge.from);
   const to = nodes.find((n) => n.id === edge.to);
@@ -158,7 +158,7 @@ function EdgePath({
         fill="none"
         stroke="var(--color-text-secondary)"
         strokeWidth={1.5}
-        markerEnd="url(#arrowhead)"
+        markerEnd={`url(#${markerId})`}
         initial={{ pathLength: 0, opacity: 0 }}
         animate={{ pathLength: 1, opacity: 1 }}
         transition={{ duration: 0.5, delay: index * 0.12 }}
@@ -183,24 +183,23 @@ function EdgePath({
 
 interface ExecutionFlowProps {
   version: string;
+  title?: string;
 }
 
-export function ExecutionFlow({ version }: ExecutionFlowProps) {
-  const t = useTranslations("version");
-  const [flow, setFlow] = useState<ReturnType<typeof getFlowForVersion>>(null);
-
-  useEffect(() => {
-    setFlow(getFlowForVersion(version));
-  }, [version]);
-
+export function ExecutionFlow({ version, title }: ExecutionFlowProps) {
+  const flow = getFlowForVersion(version);
   if (!flow) return null;
 
   const maxY = Math.max(...flow.nodes.map((n) => n.y)) + 50;
 
   return (
-    <section>
-      <h2 className="mb-4 text-xl font-semibold">{t("execution_flow")}</h2>
-      <div className="overflow-x-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] p-4">
+    <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] p-4">
+      {title && (
+        <div className="mb-3 text-sm font-medium text-[var(--color-text-secondary)]">
+          {title}
+        </div>
+      )}
+      <div className="overflow-x-auto">
         <svg
           viewBox={`0 0 600 ${maxY}`}
           className="mx-auto w-full max-w-[600px]"
@@ -208,7 +207,7 @@ export function ExecutionFlow({ version }: ExecutionFlowProps) {
         >
           <defs>
             <marker
-              id="arrowhead"
+              id={`arrowhead-${version}`}
               markerWidth={8}
               markerHeight={6}
               refX={8}
@@ -223,12 +222,18 @@ export function ExecutionFlow({ version }: ExecutionFlowProps) {
           </defs>
 
           {flow.edges.map((edge, i) => (
-            <EdgePath key={`${edge.from}-${edge.to}`} edge={edge} nodes={flow.nodes} index={i} />
+            <EdgePath
+              key={`${version}-${edge.from}-${edge.to}`}
+              edge={edge}
+              nodes={flow.nodes}
+              index={i}
+              markerId={`arrowhead-${version}`}
+            />
           ))}
 
           {flow.nodes.map((node, i) => (
             <motion.g
-              key={node.id}
+              key={`${version}-${node.id}`}
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.06, duration: 0.3 }}
@@ -238,6 +243,6 @@ export function ExecutionFlow({ version }: ExecutionFlowProps) {
           ))}
         </svg>
       </div>
-    </section>
+    </div>
   );
 }
