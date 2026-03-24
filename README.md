@@ -1,3 +1,5 @@
+# 专为 Web 前端工程师打造的 TypeScript 版 [Learn Claude Code](https://github.com/shareAI-lab/learn-claude-code)
+
 # Learn Claude Code -- 真正的 Agent Harness 工程
 
 ## 模型就是 Agent
