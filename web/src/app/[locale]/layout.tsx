@@ -19,7 +19,7 @@ export async function generateMetadata({
   const { locale } = await params;
   const messages = metaMessages[locale] || metaMessages.zh;
   return {
-    title: messages.meta?.title || "Learn Claude Code",
+    title: messages.meta?.title || "Learn Claude Code Typescript",
     description: messages.meta?.description || "Build an AI coding agent from scratch, one concept at a time",
   };
 }
