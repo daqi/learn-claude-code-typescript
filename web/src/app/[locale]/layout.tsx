@@ -1,13 +1,11 @@
 import type { Metadata } from "next";
 import { I18nProvider } from "@/lib/i18n";
 import { Header } from "@/components/layout/header";
-import en from "@/i18n/messages/en.json";
 import zh from "@/i18n/messages/zh.json";
-import ja from "@/i18n/messages/ja.json";
 import "../globals.css";
 
-const locales = ["en", "zh", "ja"];
-const metaMessages: Record<string, typeof en> = { en, zh, ja };
+const locales = ["zh"];
+const metaMessages: Record<string, typeof zh> = { zh };
 
 export function generateStaticParams() {
   return locales.map((locale) => ({ locale }));
@@ -19,7 +17,7 @@ export async function generateMetadata({
   params: Promise<{ locale: string }>;
 }): Promise<Metadata> {
   const { locale } = await params;
-  const messages = metaMessages[locale] || metaMessages.en;
+  const messages = metaMessages[locale] || metaMessages.zh;
   return {
     title: messages.meta?.title || "Learn Claude Code",
     description: messages.meta?.description || "Build an AI coding agent from scratch, one concept at a time",
@@ -34,9 +32,10 @@ export default async function RootLayout({
   params: Promise<{ locale: string }>;
 }) {
   const { locale } = await params;
+  const currentLocale = locales.includes(locale) ? locale : "zh";
 
   return (
-    <html lang={locale} suppressHydrationWarning>
+    <html lang={currentLocale} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: `
           (function() {
@@ -48,7 +47,7 @@ export default async function RootLayout({
         `}} />
       </head>
       <body className="min-h-screen bg-[var(--color-bg)] text-[var(--color-text)] antialiased">
-        <I18nProvider locale={locale}>
+        <I18nProvider locale={currentLocale}>
           <Header />
           <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
             {children}

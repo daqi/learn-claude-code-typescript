@@ -118,7 +118,7 @@ remove(name: string, force = false, completeTask = false) {
 ## 试一试
 
 ```sh
-cd learn-claude-code
+cd learn-claude-code-typescript
 npx tsx agents/s12_worktree_task_isolation.ts
 ```
 

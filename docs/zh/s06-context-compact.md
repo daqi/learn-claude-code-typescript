@@ -139,7 +139,7 @@ async function agentLoop(messages) {
 ## 试一试
 
 ```sh
-cd learn-claude-code
+cd learn-claude-code-typescript
 npx tsx agents/s06_context_compact.ts
 ```
 

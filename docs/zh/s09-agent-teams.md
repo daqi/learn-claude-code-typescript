@@ -121,7 +121,7 @@ async function teammateLoop(name: string, role: string, prompt: string) {
 ## 试一试
 
 ```sh
-cd learn-claude-code
+cd learn-claude-code-typescript
 npx tsx agents/s09_agent_teams.ts
 ```
 

@@ -120,7 +120,7 @@ async function agentLoop(query: string) {
 ## 试一试
 
 ```sh
-cd learn-claude-code
+cd learn-claude-code-typescript
 npx tsx agents/s01_agent_loop.ts
 ```
 

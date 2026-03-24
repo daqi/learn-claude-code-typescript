@@ -144,7 +144,7 @@ if (messages.length <= 3) {
 ## 试一试
 
 ```sh
-cd learn-claude-code
+cd learn-claude-code-typescript
 npx tsx agents/s11_autonomous_agents.ts
 ```
 

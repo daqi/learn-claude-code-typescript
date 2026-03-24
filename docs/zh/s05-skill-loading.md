@@ -105,7 +105,7 @@ const TOOL_HANDLERS = {
 ## 试一试
 
 ```sh
-cd learn-claude-code
+cd learn-claude-code-typescript
 npx tsx agents/s05_skill_loading.ts
 ```
 

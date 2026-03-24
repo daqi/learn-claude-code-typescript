@@ -94,7 +94,7 @@ for (const block of response.content) {
 ## 试一试
 
 ```sh
-cd learn-claude-code
+cd learn-claude-code-typescript
 npx tsx agents/s02_tool_use.ts
 ```
 

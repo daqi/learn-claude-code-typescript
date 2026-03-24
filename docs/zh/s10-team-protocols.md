@@ -103,7 +103,7 @@ function handlePlanReview(reqId: string, approve: boolean, feedback = "") {
 ## 试一试
 
 ```sh
-cd learn-claude-code
+cd learn-claude-code-typescript
 npx tsx agents/s10_team_protocols.ts
 ```
 

@@ -101,7 +101,7 @@ async function agentLoop(messages: ChatMessage[]) {
 ## 试一试
 
 ```sh
-cd learn-claude-code
+cd learn-claude-code-typescript
 npx tsx agents/s08_background_tasks.ts
 ```
 

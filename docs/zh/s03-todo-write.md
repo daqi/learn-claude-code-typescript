@@ -100,7 +100,7 @@ if (roundsSinceTodo >= 3 && messages.length) {
 ## 试一试
 
 ```sh
-cd learn-claude-code
+cd learn-claude-code-typescript
 npx tsx agents/s03_todo_write.ts
 ```
 
